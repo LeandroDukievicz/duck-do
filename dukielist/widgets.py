@@ -453,7 +453,7 @@ class WeekBoard(Static):
             heading = Text(f"{names[index]}  {current:%d/%m}", style="bold #00e5ff")
             selected = index == self.day_index
             color = "#00e5ff" if selected else ("#a855f7" if index % 2 else "#466dc2")
-            panels.append(Panel(content, title=heading, subtitle=Text("+ Adicionar", style="#ff4fd8"),
+            panels.append(Panel(content, title=heading,
                                 border_style=color, box=box.ROUNDED, height=height,
                                 padding=(1, 1), style="on #0a1b31" if selected else "on #050d1d"))
         table.add_row(*panels)
