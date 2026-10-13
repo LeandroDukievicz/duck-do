@@ -1,8 +1,8 @@
-# DukieList
+# Duck-Do
 
-O DukieList é uma todo list TUI (Terminal User Interface) para organizar tarefas do dia a dia diretamente no terminal. A interface foi feita em Python com Textual, usa uma estética cyberpunk discreta e guarda tudo em um banco SQLite local.
+O Duck-Do é uma todo list TUI (Terminal User Interface) para organizar tarefas do dia a dia diretamente no terminal. A interface foi feita em Python com Textual, usa uma estética cyberpunk discreta e guarda tudo em um banco SQLite local.
 
-Versão atual: **1.3.0**.
+Versão atual: **1.3.0**. Nesta etapa, o executável `dukielist`, o módulo Python e os caminhos de dados e configuração mantêm os nomes atuais.
 
 ## Screenshots
 
@@ -10,19 +10,19 @@ As imagens abaixo foram geradas a partir da aplicação em um terminal de 168 co
 
 ### Tela inicial — escolha do modo
 
-![Tela inicial do DukieList](docs/screenshots/01-inicio.png)
+![Tela inicial do Duck-Do](docs/screenshots/01-inicio.png)
 
 ### Visão diária
 
-![Visão diária do DukieList](docs/screenshots/02-dia.png)
+![Visão diária do Duck-Do](docs/screenshots/02-dia.png)
 
 ### Visão semanal
 
-![Visão semanal do DukieList](docs/screenshots/03-semana.png)
+![Visão semanal do Duck-Do](docs/screenshots/03-semana.png)
 
 ### Visão mensal
 
-![Calendário mensal do DukieList](docs/screenshots/04-mes.png)
+![Calendário mensal do Duck-Do](docs/screenshots/04-mes.png)
 
 ### Modal de adicionar tarefa
 
@@ -50,7 +50,7 @@ As imagens abaixo foram geradas a partir da aplicação em um terminal de 168 co
 - Sincronizar cartões do Trello com prazo, sem duplicar tarefas em execuções futuras.
 - Ver a previsão do tempo da localização aproximada atual no cabeçalho, com setas para hoje e mais três dias, incluindo chuva estimada em mm.
 
-O topo exibe apenas o nome **DukieList** em degradê. Logo abaixo, as abas de visualização dividem a faixa com a previsão do tempo e um relógio **digital HH:MM:SS**, atualizado a cada segundo, com o dia da semana e a data. O relógio usa o horário local da máquina.
+A interface ainda exibe **DukieList** no topo; o nome visual será atualizado depois. Logo abaixo, as abas de visualização dividem a faixa com a previsão do tempo e um relógio **digital HH:MM:SS**, atualizado a cada segundo, com o dia da semana e a data. O relógio usa o horário local da máquina.
 
 A composição segue as referências: marca em gradiente, abas, painéis com bordas ciano/magenta, sete colunas semanais, calendário com divisórias e indicadores coloridos, barra de progresso em gradiente e formulários com campos alinhados. A aparência final depende da fonte e do suporte a cores do terminal; efeitos gráficos de brilho e tipografia dos mockups não são reproduzidos pixel a pixel em uma TUI.
 
@@ -103,8 +103,8 @@ ou `35` para localizar diretamente. Selecione **Sem horário** no primeiro campo
 Com Git instalado, clone o repositório e entre na pasta:
 
 ```bash
-git clone https://github.com/LeandroDukievicz/dukielist.git
-cd dukielist
+git clone https://github.com/LeandroDukievicz/duck-do.git
+cd duck-do
 ```
 
 Se você recebeu a pasta por ZIP ou já está trabalhando no diretório do projeto, pule esta seção.
@@ -121,7 +121,7 @@ sudo apt install -y git python3 python3-venv python3-pip
 Dentro da pasta clonada:
 
 ```bash
-cd dukielist  # omita se já estiver dentro da pasta clonada
+cd duck-do  # omita se já estiver dentro da pasta clonada
 chmod +x scripts/install.sh
 ./scripts/install.sh
 ```
@@ -137,7 +137,7 @@ export PATH="$HOME/.local/bin:$PATH"
 Para instalar manualmente, sem o script:
 
 ```bash
-cd dukielist  # omita se já estiver na pasta
+cd duck-do  # omita se já estiver na pasta
 python3 -m venv .venv
 source .venv/bin/activate
 python -m pip install -e .
@@ -168,10 +168,10 @@ Para fechar o programa, pressione `Q` ou `CTRL+C`.
 
 ## Previsão do tempo
 
-Ao entrar na agenda, o DukieList detecta a **cidade aproximada pelo IP público** e carrega a
+Ao entrar na agenda, o Duck-Do detecta a **cidade aproximada pelo IP público** e carrega a
 previsão no cabeçalho; enquanto o programa estiver aberto, atualiza a localização e a previsão
 a cada 30 minutos. O IP público é enviado ao GeoJS para a detecção, mas não é salvo no banco
-do DukieList. Por não usar GPS, a cidade pode estar errada
+do Duck-Do. Por não usar GPS, a cidade pode estar errada
 quando houver VPN, proxy ou imprecisão do provedor de internet.
 
 As setas `‹` e `›` no cabeçalho percorrem **hoje e os três dias seguintes**. Cada dia mostra
@@ -187,12 +187,12 @@ serviço falhar, aparece um aviso, sem bloquear as tarefas locais.
 
 A detecção por IP usa [GeoJS](https://www.geojs.io/docs/v1/endpoints/geo/) e a previsão usa
 [Open-Meteo](https://open-meteo.com/en/docs). A API pública gratuita da Open-Meteo é destinada
-ao uso **não comercial** e não exige chave. Para distribuir o DukieList como produto comercial,
+ao uso **não comercial** e não exige chave. Para distribuir o Duck-Do como produto comercial,
 é necessário contratar uma licença/API apropriada antes de usar esta integração.
 
 ## Sincronização com o Trello
 
-O DukieList pode importar cartões atribuídos a você que estejam pendentes e tenham prazo a
+O Duck-Do pode importar cartões atribuídos a você que estejam pendentes e tenham prazo a
 partir do dia atual. As credenciais permanecem no arquivo externo e não são copiadas para o
 banco da aplicação:
 
@@ -215,7 +215,7 @@ dukielist sync trello --board "ESTUDOS"
 dukielist sync trello --board "Compromissos" --board "Projetos"
 ```
 
-Cartões sem prazo são ignorados, pois toda tarefa do DukieList precisa de uma data. Para uma
+Cartões sem prazo são ignorados, pois toda tarefa do Duck-Do precisa de uma data. Para uma
 importação histórica ou que inclua cartões já concluídos:
 
 ```bash
@@ -224,13 +224,13 @@ dukielist sync trello --from-date 2024-01-01 --include-completed
 
 O vínculo com o ID do cartão é salvo separadamente no SQLite. Assim, novas sincronizações
 atualizam data, horário, título, descrição e conclusão sem criar duplicatas. A conclusão é
-bidirecional: marcar ou reabrir uma tarefa na DukieList atualiza `dueComplete` no Trello, e a
-mudança feita no Trello aparece na DukieList. Enquanto a aplicação estiver aberta, os estados
+bidirecional: marcar ou reabrir uma tarefa no Duck-Do atualiza `dueComplete` no Trello, e a
+mudança feita no Trello aparece no Duck-Do. Enquanto a aplicação estiver aberta, os estados
 dos cartões vinculados são consultados automaticamente a cada minuto.
 
 Se o Trello estiver temporariamente indisponível, a mudança local permanece salva em uma fila
 persistente no SQLite e é reenviada na próxima tentativa ou ao executar `dukielist sync trello`.
-A sincronização também é coordenada entre várias instâncias abertas da DukieList; um cartão
+A sincronização também é coordenada entre várias instâncias abertas do Duck-Do; um cartão
 removido ou sem acesso não bloqueia os demais. A integração não move, arquiva nem exclui cartões.
 
 ## Dados e backup
@@ -274,7 +274,7 @@ dukielist --db ~/dukielist-backup.db
 ## Estrutura do projeto
 
 ```text
-dukielist/
+duck-do/
 ├── dukielist/
 │   ├── __init__.py       # versão do pacote
 │   ├── __main__.py       # execução com python -m dukielist
@@ -310,7 +310,7 @@ dukielist/
 Verificar sintaxe:
 
 ```bash
-cd dukielist  # se ainda não estiver na pasta do projeto
+cd duck-do  # se ainda não estiver na pasta do projeto
 .venv/bin/python -m compileall -q dukielist
 .venv/bin/python -m unittest discover -s tests -v
 ```
@@ -329,7 +329,7 @@ Para gerar também PNG, tenha Chrome ou Chromium instalado:
 env -u NO_COLOR .venv/bin/python scripts/screenshots.py --png
 ```
 
-A captura navega pelas seis telas e verifica que os modais foram abertos antes de exportar. Chrome/Chromium só é necessário para gerar os PNGs, nunca para usar o DukieList.
+A captura navega pelas seis telas e verifica que os modais foram abertos antes de exportar. Chrome/Chromium só é necessário para gerar os PNGs, nunca para usar o Duck-Do.
 
 As tarefas funcionam localmente sem servidor ou conta externa. Previsão do tempo e sincronização
 com o Trello dependem de internet; se estiverem indisponíveis, a agenda continua acessível.
