@@ -52,8 +52,6 @@ def _select_value(value: Any, enum_type):
 
 class WelcomeScreen(Screen[None]):
     BINDINGS = [
-        ("left", "previous", "Anterior"),
-        ("right", "next", "Próximo"),
         ("enter", "select", "Abrir"),
         ("g", "toggle_mascot", "Mascote"),
         ("ctrl+g", "connect_google", "Google Agenda"),
@@ -83,7 +81,7 @@ class WelcomeScreen(Screen[None]):
                             id="mode-chooser",
                         ),
                         Button("Conectar Google Agenda", id="welcome-google-connect", classes="secondary-action"),
-                        Static("← → selecionar   •   ENTER abrir   •   CTRL+G Google   •   G mascote   •   I sobre", classes="welcome-help"),
+                        Static("← → ↑ ↓ selecionar   •   ENTER abrir   •   CTRL+G Google   •   G mascote   •   I sobre", classes="welcome-help"),
                         Static(f"SQLite local  /  teclado first  /  v{__version__}", classes="welcome-meta"),
                         id="welcome-content",
                     ),
@@ -115,6 +113,16 @@ class WelcomeScreen(Screen[None]):
         for index, mode in enumerate(self.modes):
             self.query_one(f"#welcome-{mode.value}", ModeCard).set_class(index == self.selected, "selected")
         self.query_one(f"#welcome-{self.modes[self.selected].value}", ModeCard).focus()
+
+    def on_key(self, event) -> None:
+        """As quatro setas escolhem o modo, mesmo quando a tela precisa rolar."""
+        if event.key in {"left", "up"}:
+            self.action_previous()
+        elif event.key in {"right", "down"}:
+            self.action_next()
+        else:
+            return
+        event.stop()
 
     def action_previous(self) -> None:
         self.selected = (self.selected - 1) % len(self.modes)
@@ -169,6 +177,8 @@ class MonthView(Vertical):
 
 
 class MainScreen(Screen[None]):
+    ARROW_KEYS = frozenset({"left", "right", "up", "down"})
+
     BINDINGS = [
         ("d", "day_command", "Dia"),
         ("w", "set_mode('week')", "Semana"),
@@ -231,7 +241,7 @@ class MainScreen(Screen[None]):
                         Button("›", id="weather-next", classes="weather-arrow"),
                         id="weather-strip",
                     ),
-                    Static("Use ← → para navegar e ENTER para confirmar", classes="tab-hint"),
+                    Static("← → trocam de aba, ↓ entra na visualização, ENTER confirma", classes="tab-hint"),
                     id="view-tabs",
                 ),
                 DigitalClock(id="header-info"),
@@ -501,8 +511,7 @@ class MainScreen(Screen[None]):
     def action_add_task(self) -> None:
         default_date = self.selected_month_day if self.mode is ViewMode.MONTH else self.anchor_date
         if self.mode is ViewMode.WEEK:
-            board = self.query_one(WeekBoard)
-            default_date = board.start + timedelta(days=board.day_index)
+            default_date = self.query_one(WeekBoard).selected_day
         self.app.push_screen(TaskFormScreen(self.service, mode=self.mode, default_date=default_date), self._on_form_result)
 
     def action_edit_task(self) -> None:
@@ -601,6 +610,17 @@ class MainScreen(Screen[None]):
     def action_contextual_previous(self) -> None:
         self.action_previous_period()
 
+    def _move_week_day(self, delta: int) -> None:
+        """Anda um dia no quadro semanal, entrando na semana vizinha nas pontas."""
+        board = self.query_one("#week-board", WeekBoard)
+        target = board.selected_day + timedelta(days=delta)
+        self.anchor_date = target
+        self.selected_month_day = target
+        board.day_index = target.weekday()
+        board.task_index = 0
+        self.selected_task_id = None
+        self._refresh_all()
+
     def action_show_help(self) -> None:
         self.app.push_screen(HelpScreen())
 
@@ -637,12 +657,58 @@ class MainScreen(Screen[None]):
             self.action_next_period()
 
     def on_key(self, event) -> None:
+        """Mantém as setas previsíveis em toda a tela principal.
+
+        O quadro da semana e o calendário consomem as setas antes daqui; o que
+        chega são as abas, a previsão, as tabelas e os botões da moldura.
+        """
+        if event.key not in self.ARROW_KEYS:
+            return
         focused = self.focused
-        if focused and focused.has_class("view-tab") and event.key in {"left", "right"}:
-            tabs = list(self.query(".view-tab"))
-            offset = 1 if event.key == "right" else -1
-            tabs[(tabs.index(focused) + offset) % len(tabs)].focus()
+        horizontal = event.key in {"left", "right"}
+        forward = event.key in {"right", "down"}
+
+        if focused is None:
+            # Sem foco — a tabela do dia se esconde quando vazia — as setas
+            # laterais continuam valendo para caminhar pelo período.
+            if horizontal:
+                self.action_next_period() if forward else self.action_previous_period()
+                event.stop()
+            return
+
+        if focused.has_class("view-tab"):
+            if horizontal:
+                tabs = list(self.query(".view-tab"))
+                tabs[(tabs.index(focused) + (1 if forward else -1)) % len(tabs)].focus()
+            elif forward:
+                self._focus_active_view()
             event.stop()
+            return
+
+        if focused.has_class("weather-arrow"):
+            if horizontal:
+                self.action_next_weather() if forward else self.action_previous_weather()
+            else:
+                self._focus_chrome(forward)
+            event.stop()
+            return
+
+        if horizontal:
+            # Nas tabelas e nos botões, ← → caminham pelo período exibido.
+            self.action_next_period() if forward else self.action_previous_period()
+            event.stop()
+            return
+
+        if isinstance(focused, Button):
+            # ↑ ↓ pertencem às listas; nos botões servem para entrar e sair delas.
+            self._focus_chrome(forward)
+            event.stop()
+
+    def _focus_chrome(self, forward: bool) -> None:
+        if forward:
+            self._focus_active_view()
+        else:
+            self.query_one(f"#mode-{self.mode.value}", Button).focus()
 
     def on_data_table_row_highlighted(self, event: DataTable.RowHighlighted) -> None:
         table_id = event.data_table.id or ""
@@ -653,6 +719,9 @@ class MainScreen(Screen[None]):
         table_id = event.data_table.id or ""
         if table_id == f"{self.mode.value}-table" and self.mode is ViewMode.DAY:
             self.selected_task_id = self.task_ids.get(table_id, {}).get(str(event.row_key.value))
+
+    def on_week_board_day_shift_requested(self, event: WeekBoard.DayShiftRequested) -> None:
+        self._move_week_day(event.delta)
 
     def on_week_board_task_cursor_changed(self, event: WeekBoard.TaskCursorChanged) -> None:
         self.selected_task_id = event.task_id
@@ -941,8 +1010,12 @@ class HelpScreen(ModalScreen[None]):
     def compose(self) -> ComposeResult:
         text = Text()
         text.append("NAVEGAÇÃO\n", style="#00e5ff bold")
-        text.append("↑ ↓ ← →  ", style="#ff38d1 bold")
-        text.append("navegar entre itens, dias e períodos\n")
+        text.append("← →  ", style="#ff38d1 bold")
+        text.append("dia anterior/seguinte; nas pontas vira a semana e o mês\n")
+        text.append("↑ ↓  ", style="#ff38d1 bold")
+        text.append("tarefas da lista; no calendário, semana anterior/seguinte\n")
+        text.append("NAS ABAS E BOTÕES  ", style="#ff38d1 bold")
+        text.append("← → trocam a aba ou o período e ↓ entra na visualização\n")
         text.append("TAB / SHIFT+TAB  ", style="#ff38d1 bold")
         text.append("mover o foco pelos controles\n")
         text.append("ENTER  ", style="#ff38d1 bold")

@@ -210,6 +210,98 @@ class InterfaceTest(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(self.app.screen.mode, ViewMode.DAY)
             self.assertEqual(self.app.screen.anchor_date, selected)
 
+    async def test_welcome_arrows_pick_the_mode_at_every_size(self):
+        for size in ((168, 52), (100, 36), (80, 30)):
+            with self.subTest(size=size):
+                app = DukieListApp(db_path=Path(self.temp.name) / "tasks.db")
+                async with app.run_test(size=size) as pilot:
+                    welcome = app.screen
+                    for key, expected in (("down", ViewMode.WEEK), ("down", ViewMode.MONTH),
+                                          ("up", ViewMode.WEEK), ("right", ViewMode.MONTH),
+                                          ("left", ViewMode.WEEK)):
+                        await pilot.press(key)
+                        self.assertEqual(welcome.modes[welcome.selected], expected)
+                    await pilot.press("enter")
+                    self.assertEqual(app.screen.mode, ViewMode.WEEK)
+
+    async def test_week_arrows_cross_into_the_neighbouring_week(self):
+        sunday = date(2026, 3, 1)
+        self.assertEqual(sunday.weekday(), 6)
+        async with self.app.run_test(size=(168, 52)) as pilot:
+            await pilot.press("enter", "w")
+            main = self.app.screen
+            board = main.query_one(WeekBoard)
+            main.anchor_date = sunday
+            main._refresh_all()
+            board.day_index = 6
+            main._focus_active_view()
+            await pilot.pause()
+            self.assertEqual(board.start, date(2026, 2, 23))
+
+            # No domingo, avançar abre a semana seguinte na segunda-feira.
+            await pilot.press("right")
+            self.assertEqual(main.anchor_date, date(2026, 3, 2))
+            self.assertEqual(board.start, date(2026, 3, 2))
+            self.assertEqual(board.day_index, 0)
+
+            # Na segunda, voltar retorna ao domingo da semana anterior.
+            await pilot.press("left")
+            self.assertEqual(main.anchor_date, sunday)
+            self.assertEqual(board.start, date(2026, 2, 23))
+            self.assertEqual(board.day_index, 6)
+
+            # Dentro da semana, as setas só movem o dia selecionado.
+            await pilot.press("left")
+            self.assertEqual(board.start, date(2026, 2, 23))
+            self.assertEqual(board.day_index, 5)
+            self.assertEqual(main.anchor_date, date(2026, 2, 28))
+
+    async def test_arrows_walk_the_period_in_day_and_month_modes(self):
+        async with self.app.run_test(size=(168, 52)) as pilot:
+            await pilot.press("enter")
+            main = self.app.screen
+            today = date.today()
+
+            await pilot.press("right")
+            self.assertEqual(main.anchor_date, today + timedelta(days=1))
+            await pilot.press("left", "left")
+            self.assertEqual(main.anchor_date, today - timedelta(days=1))
+
+            main.action_set_mode("month")
+            main.anchor_date = date(2026, 3, 1)
+            main.selected_month_day = date(2026, 3, 1)
+            main._refresh_all()
+            main._focus_active_view()
+            await pilot.pause()
+            await pilot.press("left")
+            self.assertEqual(main.selected_month_day, date(2026, 2, 28))
+            self.assertEqual(main.anchor_date.month, 2)
+            await pilot.press("up")
+            self.assertEqual(main.selected_month_day, date(2026, 2, 21))
+
+    async def test_arrows_move_between_the_tabs_and_into_the_view(self):
+        async with self.app.run_test(size=(168, 52)) as pilot:
+            await pilot.press("enter", "w")
+            main = self.app.screen
+            week_start = main.query_one(WeekBoard).start
+
+            main.query_one("#mode-week", Button).focus()
+            await pilot.press("right")
+            self.assertIs(main.focused, main.query_one("#mode-month", Button))
+
+            main.query_one("#mode-week", Button).focus()
+            await pilot.press("down")
+            self.assertIs(main.focused, main.query_one("#week-board", WeekBoard))
+            # A ida para a visualização não deve mexer na semana exibida.
+            self.assertEqual(main.query_one(WeekBoard).start, week_start)
+
+            # Nos botões da moldura, as setas laterais caminham pelo período.
+            main.query_one("#add-task", Button).focus()
+            await pilot.press("right")
+            self.assertEqual(main.query_one(WeekBoard).start, week_start + timedelta(days=7))
+            await pilot.press("up")
+            self.assertIs(main.focused, main.query_one("#mode-week", Button))
+
     async def test_go_today_button_and_keyboard_shortcut_in_every_mode(self):
         async with self.app.run_test(size=(168, 52)) as pilot:
             await pilot.press("enter")

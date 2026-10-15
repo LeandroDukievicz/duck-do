@@ -187,6 +187,7 @@ class SidebarPanel(Static):
     def _commands(mode: str) -> list[tuple[str, str]]:
         if mode == ViewMode.DAY.value:
             return [
+                ("←→", "Dia anterior / próximo"), ("↑↓", "Escolher tarefa"),
                 ("a", "Adicionar tarefa"), ("c", "Concluir tarefa"),
                 ("x", "Deletar tarefa"), ("e", "Editar tarefa"),
                 ("v", "Ver todas as tarefas"), ("f", "Filtrar por categoria"),
@@ -195,6 +196,7 @@ class SidebarPanel(Static):
             ]
         if mode == ViewMode.WEEK.value:
             return [
+                ("←→", "Dia, trocando de semana"), ("↑↓", "Tarefas do dia"),
                 ("a", "Adicionar tarefa"), ("e", "Editar tarefa"),
                 ("x", "Deletar tarefa"), ("v", "Ver tarefa"),
                 ("s", "Marcar como concluída"), ("u", "Desmarcar tarefa"),
@@ -202,6 +204,7 @@ class SidebarPanel(Static):
                 ("h", "Mostrar ajuda"), ("q", "Sair"),
             ]
         return [
+            ("←→", "Dia, trocando de mês"), ("↑↓", "Semana anterior / próxima"),
             ("a", "Adicionar tarefa (no dia)"), ("e", "Editar tarefa (do dia)"),
             ("v", "Ver tarefas do dia"), ("b", "Mês anterior"),
             ("n", "Próximo mês"), ("h", "Mostrar ajuda"), ("q", "Sair"),
@@ -243,7 +246,7 @@ class SidebarPanel(Static):
             text.append(f"modo {MODE_LABELS.get(self.mode, self.mode).lower()}\n\n", style="#809bc4")
 
         for key, label in self._commands(self.mode):
-            text.append(f"{key:<2}", style="#00e5ff bold")
+            text.append(f"{key:<3}", style="#00e5ff bold")
             text.append(f" {label}\n", style="#d4e1f8")
 
         if self.filters_active:
@@ -361,6 +364,13 @@ class WeekBoard(Static):
             self.confirmed = confirmed
             super().__init__()
 
+    class DayShiftRequested(Message):
+        """Pedido de mover o cursor um dia; nas pontas o destino cai na semana vizinha."""
+
+        def __init__(self, delta: int) -> None:
+            self.delta = delta
+            super().__init__()
+
     can_focus = True
 
     def __init__(self, **kwargs) -> None:
@@ -380,8 +390,12 @@ class WeekBoard(Static):
         self.task_index = min(self.task_index, max(len(current_tasks) - 1, 0))
         self.refresh()
 
+    @property
+    def selected_day(self) -> date:
+        return self.start + timedelta(days=self.day_index)
+
     def _current_day_tasks(self) -> list[Task]:
-        return self.tasks_by_day.get(self.start + timedelta(days=self.day_index), [])
+        return self.tasks_by_day.get(self.selected_day, [])
 
     def _current_task_id(self) -> int | None:
         tasks = self._current_day_tasks()
@@ -461,10 +475,9 @@ class WeekBoard(Static):
 
     def on_key(self, event) -> None:
         if event.key in {"left", "right"}:
-            self.day_index = (self.day_index + (1 if event.key == "right" else -1)) % 7
-            self.task_index = 0
-            self.update(self._render_board())
-            self.post_message(self.TaskCursorChanged(self._current_task_id()))
+            # Quem decide o destino é a tela: no domingo e na segunda o cursor
+            # atravessa para a semana vizinha em vez de voltar ao outro extremo.
+            self.post_message(self.DayShiftRequested(1 if event.key == "right" else -1))
             event.stop()
         elif event.key in {"up", "down"}:
             self._move_task_cursor(1 if event.key == "down" else -1)

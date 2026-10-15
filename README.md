@@ -41,7 +41,7 @@ As imagens abaixo foram geradas a partir da aplicação em um terminal de 168 co
 - Concluir e reabrir tarefas.
 - Excluir tarefas com confirmação.
 - Filtrar por texto, categoria, prioridade e status; usar `V` para limpar filtros e ver todas as tarefas.
-- Navegar para o dia, a semana ou o mês anterior e seguinte.
+- Navegar para o dia, a semana ou o mês anterior e seguinte, pelas setas do teclado ou pelos atalhos `N` e `B`.
 - Consultar percentual de conclusão, total, pendentes e distribuição por categoria.
 - Usar o calendário mensal para selecionar um dia e ver as tarefas daquele dia.
 - Manter a semana inteira visível, com barra de rolagem nas colunas que excederem o espaço disponível.
@@ -62,7 +62,25 @@ A composição segue as referências: marca em gradiente, abas, painéis com bor
 
 Para o layout completo, use cerca de **168×52** ou mais. Também há navegação testada em **140×44, 100×36 e 80×30**. Abaixo de 160 colunas, a previsão compacta é ocultada, mas continua acessível pelo atalho `R`. Em telas estreitas, a lateral é recolhida (a ajuda continua em `H`), a semana acompanha o dia selecionado mostrando três ou uma coluna, e formulários/calendário usam rolagem. Em telas baixas, o relógio é compacto e o progresso é ocultado para preservar as tarefas. Redimensionar não modifica seus dados.
 
-No modo Semana, `← →` escolhem o dia e `↑ ↓` percorrem todas as tarefas — inclusive as que não cabem de uma vez. `A` cria no dia selecionado; `ENTER` edita a tarefa ou abre a criação se o dia estiver vazio. No calendário, `ENTER` abre a lista do dia selecionado. Nas abas, use `TAB` para focar, `← →` para escolher e `ENTER` para confirmar.
+No modo Semana, a grade mostra a semana fechada, de segunda a domingo. `← →` escolhem o dia e, nas pontas, atravessam para a semana vizinha: avançar no domingo abre a semana seguinte já na segunda-feira, e voltar na segunda abre a semana anterior no domingo. O título do período, o progresso e a lateral acompanham a troca. `↑ ↓` percorrem todas as tarefas do dia selecionado — inclusive as que não cabem de uma vez. `A` cria no dia selecionado; `ENTER` edita a tarefa ou abre a criação se o dia estiver vazio. No calendário, `ENTER` abre a lista do dia selecionado.
+
+## Navegação pelo teclado
+
+As setas funcionam em toda a agenda e o que elas fazem depende de onde está o foco.
+
+| Onde está o foco | `← →` | `↑ ↓` |
+| --- | --- | --- |
+| Tela inicial | Escolher Dia, Semana ou Mês | Escolher Dia, Semana ou Mês |
+| Modo Dia | Dia anterior / seguinte | Escolher a tarefa da lista |
+| Modo Semana | Dia anterior / seguinte, trocando de semana nas pontas | Tarefas do dia selecionado |
+| Modo Mês | Dia anterior / seguinte, trocando de mês nas pontas | Semana anterior / seguinte |
+| Abas de visualização | Trocar de aba | `↓` entra na visualização ativa |
+| Previsão do tempo | Dia anterior / seguinte da previsão | `↓` entra na visualização, `↑` volta às abas |
+| Botões do período | Período anterior / seguinte | `↓` entra na visualização, `↑` volta às abas |
+
+Nenhuma seta fica presa em um extremo: o cursor sempre atravessa para a semana ou o mês
+vizinho em vez de voltar ao começo do período. `TAB` e `SHIFT+TAB` continuam movendo o foco
+entre os controles, e `T` volta para hoje em qualquer modo.
 
 ## Atalhos
 
@@ -85,7 +103,8 @@ No modo Semana, `← →` escolhem o dia e `↑ ↓` percorrem todas as tarefas 
 | `G` | Mostrar/ocultar o mascote; preferência salva entre execuções |
 | `CTRL+G` | Conectar ou sincronizar a Google Agenda |
 | `I` | Abrir a tela Sobre |
-| `↑ ↓ ← →` | Mover seleção; no calendário, mover o dia |
+| `← →` | Dia anterior / seguinte; nas pontas, troca a semana e o mês |
+| `↑ ↓` | Tarefas da lista; no calendário, semana anterior / seguinte |
 | `TAB` / `SHIFT+TAB` | Avançar ou voltar o foco entre controles |
 | `ENTER` | Selecionar, abrir ou confirmar |
 | `ESC` | Fechar modal |
