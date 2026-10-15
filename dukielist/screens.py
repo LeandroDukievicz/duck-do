@@ -22,6 +22,7 @@ from textual.widgets import (
 
 from . import __version__
 from .models import Category, Priority, Status, Task, ViewMode, format_date
+from .mascot import MascotDisplay, choose_layout
 from .pickers import DatePickerScreen
 from .services import TaskFilters, TaskService, month_bounds, shift_month, week_bounds
 from .weather import WeatherError, WeatherForecast, fetch_forecast, fetch_local_forecast
@@ -54,6 +55,9 @@ class WelcomeScreen(Screen[None]):
         ("left", "previous", "Anterior"),
         ("right", "next", "Próximo"),
         ("enter", "select", "Abrir"),
+        ("g", "toggle_mascot", "Mascote"),
+        ("ctrl+g", "connect_google", "Google Agenda"),
+        ("i", "show_about", "Sobre"),
         ("q", "quit", "Sair"),
     ]
 
@@ -66,16 +70,25 @@ class WelcomeScreen(Screen[None]):
         yield VerticalScroll(
             AppTitle(id="welcome-title"),
             Container(
-                Static("[ DUKIELIST / START ]", classes="eyebrow"),
-                Static("Escolha uma visualização para começar", classes="welcome-prompt"),
                 Horizontal(
-                    ModeCard("day", "DIA", "Tarefas de hoje", id="welcome-day", classes="mode-card"),
-                    ModeCard("week", "SEMANA", "Ritmo dos próximos dias", id="welcome-week", classes="mode-card"),
-                    ModeCard("month", "MÊS", "Mapa do mês", id="welcome-month", classes="mode-card"),
-                    id="mode-chooser",
+                    MascotDisplay("welcome", id="welcome-mascot"),
+                    Vertical(
+                        Static("DUKIELIST", classes="welcome-brand"),
+                        Static("[ DUKIELIST / START ]", classes="eyebrow"),
+                        Static("Escolha uma visualização para começar", classes="welcome-prompt"),
+                        Horizontal(
+                            ModeCard("day", "DIA", "Tarefas de hoje", id="welcome-day", classes="mode-card"),
+                            ModeCard("week", "SEMANA", "Ritmo dos próximos dias", id="welcome-week", classes="mode-card"),
+                            ModeCard("month", "MÊS", "Mapa do mês", id="welcome-month", classes="mode-card"),
+                            id="mode-chooser",
+                        ),
+                        Button("Conectar Google Agenda", id="welcome-google-connect", classes="secondary-action"),
+                        Static("← → selecionar   •   ENTER abrir   •   CTRL+G Google   •   G mascote   •   I sobre", classes="welcome-help"),
+                        Static(f"SQLite local  /  teclado first  /  v{__version__}", classes="welcome-meta"),
+                        id="welcome-content",
+                    ),
+                    id="welcome-layout",
                 ),
-                Static("← → selecionar   •   ENTER abrir   •   TAB navegar   •   Q sair", classes="welcome-help"),
-                Static(f"SQLite local  /  teclado first  /  v{__version__}", classes="welcome-meta"),
                 id="welcome-card",
             ),
             id="welcome-shell",
@@ -90,8 +103,13 @@ class WelcomeScreen(Screen[None]):
 
     def _update_responsive_class(self) -> None:
         width = self.app.size.width if self.app else 160
+        height = self.app.size.height if self.app else 50
         self.set_class(width < 100, "compact-layout")
         self.set_class(width < 76, "narrow-layout")
+        self.set_class(
+            choose_layout("welcome", width, height, self.app.mascot_enabled) is not None,
+            "welcome-mascot-visible",
+        )
 
     def _refresh_selection(self) -> None:
         for index, mode in enumerate(self.modes):
@@ -111,6 +129,20 @@ class WelcomeScreen(Screen[None]):
 
     def action_quit(self) -> None:
         self.app.exit()
+
+    def action_toggle_mascot(self) -> None:
+        self.app.toggle_mascot()
+        self._update_responsive_class()
+
+    def action_show_about(self) -> None:
+        self.app.push_screen(AboutScreen())
+
+    def action_connect_google(self) -> None:
+        self.app.request_google_auth()
+
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        if event.button.id == "welcome-google-connect":
+            self.action_connect_google()
 
     def on_mode_card_selected(self, event: ModeCard.Selected) -> None:
         self.selected = self.modes.index(ViewMode(event.mode))
@@ -158,6 +190,9 @@ class MainScreen(Screen[None]):
         ("b", "contextual_previous", "Anterior"),
         ("h", "show_help", "Ajuda"),
         ("?", "show_help", "Ajuda"),
+        ("g", "toggle_mascot", "Mascote"),
+        ("ctrl+g", "connect_google", "Google Agenda"),
+        ("i", "show_about", "Sobre"),
         ("q", "quit", "Sair"),
         ("tab", "app.focus_next", "Próximo campo"),
         ("shift+tab", "app.focus_previous", "Campo anterior"),
@@ -178,7 +213,10 @@ class MainScreen(Screen[None]):
 
     def compose(self) -> ComposeResult:
         yield Container(
-            AppTitle(id="app-title"),
+            Horizontal(
+                AppTitle(id="app-title"),
+                id="brand-row",
+            ),
             Horizontal(
                 Horizontal(
                     Static("▦", classes="tabs-icon"),
@@ -197,6 +235,7 @@ class MainScreen(Screen[None]):
                     id="view-tabs",
                 ),
                 DigitalClock(id="header-info"),
+                    MascotDisplay("main", id="main-mascot"),
                 id="header-row",
             ),
             Horizontal(
@@ -211,6 +250,7 @@ class MainScreen(Screen[None]):
                         Horizontal(
                             Button("＋ ADICIONAR", id="add-task", classes="primary-action"),
                             Button("✎ EDITAR", id="edit-task", classes="secondary-action"),
+                            Button("GOOGLE AGENDA", id="google-connect", classes="secondary-action"),
                             id="period-actions",
                         ),
                         id="period-bar",
@@ -233,7 +273,6 @@ class MainScreen(Screen[None]):
             Vertical(
                 CommandPrompt(id="command-prompt"),
                 Horizontal(
-                    Button("☁ PREVISÃO", id="weather-open"),
                     Static(f"DukieList v{__version__}", classes="footer-brand"),
                     Static("Produtividade no terminal", classes="footer-productivity"),
                     Static("∞", classes="footer-infinity"),
@@ -264,6 +303,20 @@ class MainScreen(Screen[None]):
         self.set_class(height < 40, "short-layout")
         self.set_class(width < 160, "weather-compact")
         self.set_class(160 <= width < 200, "weather-tight")
+        self.set_class(
+            choose_layout("main", width, height, self.app.mascot_enabled) is not None,
+            "brand-mascot-visible",
+        )
+
+    def action_toggle_mascot(self) -> None:
+        self.app.toggle_mascot()
+        self._update_responsive_class()
+
+    def action_show_about(self) -> None:
+        self.app.push_screen(AboutScreen())
+
+    def action_connect_google(self) -> None:
+        self.app.request_google_auth()
 
     def _refresh_local_weather(self) -> None:
         if not self._weather_manual_override:
@@ -468,7 +521,7 @@ class MainScreen(Screen[None]):
             updated = self.service.toggle(task.id)
             self.notify("Tarefa concluída." if updated.completed else "Tarefa reaberta.", title="Atualizado", severity="information")
             self._refresh_all()
-            request_sync = getattr(self.app, "request_trello_completion_sync", None)
+            request_sync = getattr(self.app, "request_external_sync", None)
             if request_sync is not None:
                 request_sync()
         except ValueError as exc:
@@ -511,6 +564,9 @@ class MainScreen(Screen[None]):
                 self.service.delete(task.id)
         self.selected_task_id = None
         self._refresh_all()
+        request_sync = getattr(self.app, "request_external_sync", None)
+        if request_sync is not None:
+            request_sync()
         self.notify(f"{len(completed)} tarefa(s) concluída(s) removida(s).", title="DukieList", severity="information")
 
     def action_filter_category(self) -> None:
@@ -569,8 +625,8 @@ class MainScreen(Screen[None]):
             self.action_add_task()
         elif button_id == "edit-task":
             self.action_edit_task()
-        elif button_id == "weather-open":
-            self.action_show_weather()
+        elif button_id == "google-connect":
+            self.action_connect_google()
         elif button_id == "weather-prev":
             self.action_previous_weather()
         elif button_id == "weather-next":
@@ -630,7 +686,7 @@ class MainScreen(Screen[None]):
             self.mode = ViewMode(result["view_mode"])
         self._refresh_all()
         self._focus_active_view()
-        request_sync = getattr(self.app, "request_trello_completion_sync", None)
+        request_sync = getattr(self.app, "request_external_sync", None)
         if request_sync is not None:
             request_sync()
         action = "criada" if result.get("action") == "created" else "atualizada"
@@ -643,6 +699,9 @@ class MainScreen(Screen[None]):
             if self.service.delete(result):
                 self.selected_task_id = None
                 self._refresh_all()
+                request_sync = getattr(self.app, "request_external_sync", None)
+                if request_sync is not None:
+                    request_sync()
                 self.notify("Tarefa removida.", title="DukieList", severity="information")
         except Exception as exc:
             self.notify(str(exc), title="Erro ao remover", severity="error")
@@ -891,13 +950,61 @@ class HelpScreen(ModalScreen[None]):
         text.append("ESC  ", style="#ff38d1 bold")
         text.append("fechar modal\n\n")
         text.append("ATALHOS\n", style="#00e5ff bold")
-        for key, label in (("D / W / M", "alternar modos Dia, Semana e Mês"), ("T", "ir para a data de hoje"), ("R", "abrir previsão do tempo"), ("A", "adicionar tarefa"), ("E", "editar tarefa selecionada"), ("C / S / U", "alternar, concluir ou desmarcar"), ("X / DELETE", "excluir com confirmação"), ("F / P", "filtrar categoria ou prioridade"), ("V", "ver tarefas / limpar filtros"), ("N / B", "próximo período / período anterior"), ("L", "limpar concluídas"), ("Q", "sair do DukieList")):
+        for key, label in (("D / W / M", "alternar modos Dia, Semana e Mês"), ("T", "ir para a data de hoje"), ("R", "abrir previsão do tempo"), ("A", "adicionar tarefa"), ("E", "editar tarefa selecionada"), ("C / S / U", "alternar, concluir ou desmarcar"), ("X / DELETE", "excluir com confirmação"), ("F / P", "filtrar categoria ou prioridade"), ("V", "ver tarefas / limpar filtros"), ("N / B", "próximo período / período anterior"), ("G", "mostrar ou ocultar o mascote"), ("CTRL+G", "conectar ou sincronizar Google Agenda"), ("I", "sobre DukieList"), ("L", "limpar concluídas"), ("Q", "sair do DukieList")):
             text.append(f"{key:<12}", style="#ff38d1 bold")
             text.append(f" {label}\n", style="#d2def4")
         yield VerticalScroll(Static("?  ATALHOS DO DUKIELIST", classes="modal-title"), Static(text, classes="help-copy"), Button(Text("[ Fechar ]"), id="help-close", classes="primary-action"), id="help-card")
 
     def on_mount(self) -> None:
         self.query_one("#help-close", Button).focus()
+
+    def action_close(self) -> None:
+        self.dismiss(None)
+
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        self.action_close()
+
+
+class AboutScreen(ModalScreen[None]):
+    BINDINGS = [("escape", "close", "Fechar"), ("i", "close", "Fechar")]
+
+    def compose(self) -> ComposeResult:
+        yield Vertical(
+            Static("DUKIELIST", classes="about-title"),
+            Horizontal(
+                MascotDisplay("about", id="about-mascot"),
+                Vertical(
+                    Static("Agenda cyberpunk no terminal", classes="about-tagline"),
+                    Static(
+                        f"Mascote oficial renderizado pelo Chafa · v{__version__}\n"
+                        "Unicode e ANSI True Color, com ajuste ao tamanho do terminal.",
+                        classes="about-copy",
+                    ),
+                    id="about-description",
+                ),
+                id="about-layout",
+            ),
+            Button(Text("[ Fechar ]"), id="about-close", classes="primary-action"),
+            id="about-card",
+        )
+
+    def on_mount(self) -> None:
+        self.query_one("#about-close", Button).focus()
+
+    def on_resize(self, event: Resize) -> None:
+        self._update_responsive_class()
+
+    def _update_responsive_class(self) -> None:
+        width = self.app.size.width if self.app else 100
+        height = self.app.size.height if self.app else 30
+        self.set_class(
+            choose_layout("about", width, height, self.app.mascot_enabled) is not None,
+            "about-mascot-visible",
+        )
+
+    def on_mount(self) -> None:
+        self._update_responsive_class()
+        self.query_one("#about-close", Button).focus()
 
     def action_close(self) -> None:
         self.dismiss(None)

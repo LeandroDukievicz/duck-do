@@ -11,7 +11,7 @@ from textual.widgets import Button, Input, Select
 from dukielist.app import DukieListApp
 from dukielist.models import Category, Priority, ViewMode
 from dukielist.pickers import DatePickerScreen, shift_selected_month
-from dukielist.screens import MainScreen, TaskFormScreen, FilterScreen, HelpScreen, ConfirmDeleteScreen
+from dukielist.screens import AboutScreen, MainScreen, TaskFormScreen, FilterScreen, HelpScreen, ConfirmDeleteScreen
 from dukielist.widgets import CalendarGrid, WeekBoard
 from dukielist.weather import ForecastDay, WeatherForecast, WeatherError, WeatherConnectionError
 from dukielist.weather_screens import WeatherScreen
@@ -68,17 +68,75 @@ class InterfaceTest(unittest.IsolatedAsyncioTestCase):
             await pilot.pause()
             self.assertEqual(main._current_task().title, "Nova tarefa")
 
+    async def test_mascot_toggle_about_and_keyboard_task_flow(self):
+        async with self.app.run_test(size=(220, 52)) as pilot:
+            welcome = self.app.screen
+            await pilot.pause()
+            self.assertTrue(welcome.has_class("welcome-mascot-visible"))
+            await pilot.press("g")
+            self.assertFalse(self.app.mascot_enabled)
+            self.assertEqual(self.app.storage.get_setting("mascot_enabled"), "off")
+            await pilot.press("g")
+            self.assertTrue(self.app.mascot_enabled)
+
+            await pilot.press("i")
+            self.assertIsInstance(self.app.screen, AboutScreen)
+            await pilot.pause()
+            self.assertTrue(self.app.screen.query_one("#about-card").region.contains_region(
+                self.app.screen.query_one("#about-mascot").region
+            ))
+            await pilot.press("escape")
+            await pilot.press("enter")
+            main = self.app.screen
+            self.assertIsInstance(main, MainScreen)
+            await pilot.pause()
+            self.assertTrue(main.has_class("brand-mascot-visible"))
+            self.assertTrue(main.query_one("#header-row").region.contains_region(
+                main.query_one("#main-mascot").region
+            ))
+
+            await pilot.press("g", "a")
+            self.assertFalse(main.has_class("brand-mascot-visible"))
+            self.assertIsInstance(self.app.screen, TaskFormScreen)
+            await pilot.press("escape")
+            self.assertIsInstance(self.app.screen, MainScreen)
+
+    async def test_google_connection_from_shortcut_and_button(self):
+        with patch("dukielist.app.authorize_google", return_value="Agenda de teste") as authorize:
+            with patch.object(self.app, "_start_google_updates") as start_updates:
+                async with self.app.run_test(size=(100, 36)) as pilot:
+                    await pilot.press("ctrl+g")
+                    await self.app.workers.wait_for_complete()
+                    self.assertEqual(authorize.call_count, 1)
+                    self.assertTrue(authorize.call_args.kwargs["quiet"])
+                    self.assertIn("google_calendar", self.app.storage.mirror_sources())
+                    start_updates.assert_called_once()
+
+                    await pilot.press("enter")
+                    with patch.object(self.app, "request_google_auth") as connect:
+                        await pilot.click("#google-connect")
+                        connect.assert_called_once()
+                    for size in ((168, 52), (100, 36), (80, 30)):
+                        await pilot.resize_terminal(*size)
+                        button = self.app.screen.query_one("#google-connect", Button)
+                        self.assertTrue(button.parent.region.contains_region(button.region), size)
+
+    async def test_google_connection_button_is_available_on_welcome(self):
+        async with self.app.run_test(size=(80, 30)) as pilot:
+            with patch.object(self.app, "request_google_auth") as connect:
+                await pilot.click("#welcome-google-connect")
+                connect.assert_called_once()
+
     async def test_navigation_at_supported_sizes(self):
         async with self.app.run_test(size=(168, 52)) as pilot:
             await pilot.press("enter")
             main = self.app.screen
-            for size in ((168, 52), (140, 44), (100, 36), (80, 30)):
+            for size in ((220, 52), (168, 44), (140, 44), (100, 36), (80, 30)):
                 with self.subTest(size=size):
                     await pilot.resize_terminal(*size)
-                    weather_button = main.query_one("#weather-open", Button)
-                    self.assertTrue(main.query_one("#app-footer").region.contains_region(
-                        weather_button.region
-                    ), size)
+                    mascot_expected = size[0] >= 220 and size[1] >= 44
+                    self.assertEqual(main.has_class("brand-mascot-visible"), mascot_expected)
+                    self.assertEqual(len(main.query("#weather-open")), 0)
                     if size[0] >= 160:
                         strip = main.query_one("#weather-strip")
                         self.assertTrue(main.query_one("#view-tabs").region.contains_region(
@@ -97,7 +155,7 @@ class InterfaceTest(unittest.IsolatedAsyncioTestCase):
                                 self.assertFalse(tab.region.overlaps(other.region),
                                                  (size, mode, tab.id, other.id))
                         controls = [main.query_one("#" + name) for name in
-                                    ("previous-period", "next-period", "add-task", "edit-task")]
+                                    ("previous-period", "next-period", "add-task", "edit-task", "google-connect")]
                         for control in controls:
                             self.assertTrue(control.parent.region.contains_region(control.region),
                                             (size, mode, control.id, control.region, control.parent.region))

@@ -10,6 +10,9 @@ readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
     "textual>=8.2.8,<9",
+    "google-api-python-client>=2.100",
+    "google-auth-oauthlib>=1.2",
+    "google-auth-httplib2>=0.2",
 ]
 
 [project.scripts]
@@ -19,4 +22,11 @@ dukielist = "dukielist.app:main"
 include = ["dukielist*"]
 
 [tool.setuptools.package-data]
-dukielist = ["*.tcss"]
+dukielist = ["*.tcss", "google_oauth_client.json"]
+
+[tool.setuptools.data-files]
+"share/dukielist/assets/mascot" = [
+    "assets/mascot/duck-do.png",
+    "assets/mascot/duck-do-compact.png",
+    "assets/mascot/duck-do-small.png",
+]

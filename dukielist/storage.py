@@ -8,6 +8,9 @@ from pathlib import Path
 from .models import Category, Priority, Status, Task
 
 
+MIRROR_SETTING_KEY = "mirror_sources"
+
+
 class SQLiteStorage:
     """Persistência local transacional, sem dependências externas."""
 
@@ -70,6 +73,16 @@ class SQLiteStorage:
                     key TEXT PRIMARY KEY,
                     value TEXT NOT NULL
                 );
+                CREATE TABLE IF NOT EXISTS external_outbox (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    source TEXT NOT NULL,
+                    operation TEXT NOT NULL,
+                    task_id INTEGER NOT NULL,
+                    external_id TEXT,
+                    created_at TEXT NOT NULL
+                );
+                CREATE UNIQUE INDEX IF NOT EXISTS idx_external_outbox_entry
+                    ON external_outbox(source, operation, task_id);
                 """
             )
             columns = {row["name"] for row in connection.execute("PRAGMA table_info(tasks)")}
@@ -99,6 +112,160 @@ class SQLiteStorage:
                 (key, value),
             )
 
+    def mirror_sources(self) -> tuple[str, ...]:
+        """Integrações que recebem uma cópia de cada alteração local."""
+        with self._connect() as connection:
+            return self._mirror_sources(connection)
+
+    @staticmethod
+    def _mirror_sources(connection) -> tuple[str, ...]:
+        row = connection.execute(
+            "SELECT value FROM app_settings WHERE key=?", (MIRROR_SETTING_KEY,)
+        ).fetchone()
+        if not row:
+            return ()
+        return tuple(part for part in str(row["value"]).split(",") if part)
+
+    def enable_mirror(self, source: str) -> None:
+        with self._connect() as connection:
+            sources = set(self._mirror_sources(connection)) | {source}
+            connection.execute(
+                "INSERT INTO app_settings (key, value) VALUES (?, ?) "
+                "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+                (MIRROR_SETTING_KEY, ",".join(sorted(sources))),
+            )
+
+    def disable_mirror(self, source: str) -> None:
+        with self._connect() as connection:
+            sources = set(self._mirror_sources(connection)) - {source}
+            connection.execute(
+                "INSERT INTO app_settings (key, value) VALUES (?, ?) "
+                "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+                (MIRROR_SETTING_KEY, ",".join(sorted(sources))),
+            )
+            connection.execute("DELETE FROM external_outbox WHERE source=?", (source,))
+
+    @staticmethod
+    def _enqueue(
+        connection,
+        source: str,
+        operation: str,
+        task_id: int,
+        external_id: str | None = None,
+    ) -> None:
+        connection.execute(
+            """
+            INSERT INTO external_outbox (source, operation, task_id, external_id, created_at)
+            VALUES (?, ?, ?, ?, ?)
+            ON CONFLICT(source, operation, task_id) DO UPDATE SET
+                external_id=excluded.external_id, created_at=excluded.created_at
+            """,
+            (
+                source,
+                operation,
+                task_id,
+                external_id,
+                datetime.now().isoformat(timespec="microseconds"),
+            ),
+        )
+
+    def _enqueue_upsert(self, connection, task_id: int, *, skip: str | None = None) -> None:
+        for source in self._mirror_sources(connection):
+            if source != skip:
+                self._enqueue(connection, source, "upsert", task_id)
+
+    def pending_outbox(self, source: str) -> list[dict[str, object]]:
+        """Alterações locais aguardando envio, na ordem em que aconteceram."""
+        with self._connect() as connection:
+            rows = connection.execute(
+                """
+                SELECT id, operation, task_id, external_id, created_at FROM external_outbox
+                WHERE source=? ORDER BY id
+                """,
+                (source,),
+            ).fetchall()
+        return [
+            {
+                "id": int(row["id"]),
+                "operation": str(row["operation"]),
+                "task_id": int(row["task_id"]),
+                "external_id": str(row["external_id"]) if row["external_id"] else None,
+                "created_at": str(row["created_at"]),
+            }
+            for row in rows
+        ]
+
+    def enqueue_unlinked_tasks(self, source: str) -> None:
+        """Prepara tarefas anteriores à ativação de uma integração."""
+        with self._connect() as connection:
+            rows = connection.execute(
+                """
+                SELECT tasks.id FROM tasks
+                WHERE NOT EXISTS (
+                    SELECT 1 FROM external_task_links AS links
+                    WHERE links.source=? AND links.task_id=tasks.id
+                )
+                """,
+                (source,),
+            ).fetchall()
+            for row in rows:
+                self._enqueue(connection, source, "upsert", int(row["id"]))
+
+    def resolve_outbox(self, entry_id: int, *, created_at: str | None = None) -> bool:
+        """Remove um item da fila, a menos que ele tenha mudado desde a leitura."""
+        with self._connect() as connection:
+            if created_at is None:
+                cursor = connection.execute(
+                    "DELETE FROM external_outbox WHERE id=?", (entry_id,)
+                )
+            else:
+                cursor = connection.execute(
+                    "DELETE FROM external_outbox WHERE id=? AND created_at=?",
+                    (entry_id, created_at),
+                )
+        return cursor.rowcount > 0
+
+    def link_external(
+        self,
+        *,
+        source: str,
+        external_id: str,
+        task_id: int,
+        external_updated_at: str | None = None,
+        external_url: str | None = None,
+    ) -> None:
+        """Registra o item remoto criado a partir de uma tarefa local."""
+        with self._connect() as connection:
+            connection.execute(
+                """
+                INSERT INTO external_task_links
+                (source, external_id, task_id, external_updated_at, external_url)
+                VALUES (?, ?, ?, ?, ?)
+                ON CONFLICT(source, external_id) DO UPDATE SET
+                    task_id=excluded.task_id,
+                    external_updated_at=excluded.external_updated_at,
+                    external_url=excluded.external_url,
+                    pending_completed=NULL
+                """,
+                (source, external_id, task_id, external_updated_at, external_url),
+            )
+
+    def external_id_for_task(self, source: str, task_id: int) -> str | None:
+        with self._connect() as connection:
+            row = connection.execute(
+                "SELECT external_id FROM external_task_links WHERE source=? AND task_id=?",
+                (source, task_id),
+            ).fetchone()
+        return str(row["external_id"]) if row else None
+
+    def unlink_external(self, source: str, external_id: str) -> bool:
+        with self._connect() as connection:
+            cursor = connection.execute(
+                "DELETE FROM external_task_links WHERE source=? AND external_id=?",
+                (source, external_id),
+            )
+        return cursor.rowcount > 0
+
     @staticmethod
     def _task_values(task: Task) -> tuple[object, ...]:
         return (
@@ -126,6 +293,7 @@ class SQLiteStorage:
                 self._task_values(task),
             )
             task.id = int(cursor.lastrowid)
+            self._enqueue_upsert(connection, task.id)
         return task
 
     def update(self, task: Task) -> Task:
@@ -153,6 +321,8 @@ class SQLiteStorage:
                     """,
                     (int(task.completed), task.id),
                 )
+            if previous is not None:
+                self._enqueue_upsert(connection, task.id)
         return task
 
     def get(self, task_id: int) -> Task | None:
@@ -201,7 +371,28 @@ class SQLiteStorage:
 
     def delete(self, task_id: int) -> bool:
         with self._connect() as connection:
+            mirrors = self._mirror_sources(connection)
+            # The links disappear with the task (ON DELETE CASCADE), so the
+            # remote ids have to be read while the row still exists.
+            linked = {
+                str(row["source"]): str(row["external_id"])
+                for row in connection.execute(
+                    "SELECT source, external_id FROM external_task_links WHERE task_id=?",
+                    (task_id,),
+                )
+            }
             cursor = connection.execute("DELETE FROM tasks WHERE id=?", (task_id,))
+            if cursor.rowcount:
+                # A queued upsert for a task that no longer exists would only
+                # recreate what the delete is about to remove.
+                connection.execute(
+                    "DELETE FROM external_outbox WHERE task_id=? AND operation='upsert'",
+                    (task_id,),
+                )
+                for source in mirrors:
+                    external_id = linked.get(source)
+                    if external_id:
+                        self._enqueue(connection, source, "delete", task_id, external_id)
         return cursor.rowcount > 0
 
     def external_task_id(self, source: str, external_id: str) -> int | None:
@@ -317,6 +508,7 @@ class SQLiteStorage:
                         int(link["task_id"]),
                     ),
                 )
+                self._enqueue_upsert(connection, int(link["task_id"]), skip=source)
             connection.execute(
                 """
                 UPDATE external_task_links SET external_updated_at=?
@@ -369,6 +561,7 @@ class SQLiteStorage:
                     """,
                     (source, external_id, task.id, external_updated_at, external_url),
                 )
+                self._enqueue_upsert(connection, task.id, skip=source)
                 return "created"
 
             task.id = int(link["task_id"])
@@ -394,4 +587,5 @@ class SQLiteStorage:
                 """,
                 (external_updated_at, external_url, source, external_id),
             )
+            self._enqueue_upsert(connection, task.id, skip=source)
             return "updated"
